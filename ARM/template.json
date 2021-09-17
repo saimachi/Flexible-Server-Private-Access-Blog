@@ -3,7 +3,172 @@
     "contentVersion": "1.0.0.0",
     "parameters": {},
     "functions": [],
-    "variables": {},
-    "resources": [],
+    "variables": {
+        "HubVNetName": "[toLower(concat('vnet-hub-prod-', resourceGroup().location))]",
+        "SpokeVNetName": "[toLower(concat('vnet-app-spoke-prod-', resourceGroup().location, '-001'))]",
+        
+        "HubToSpokePeering": "[concat(variables('HubVNetName'), '/link-', variables('SpokeVNetName'))]",
+        "SpokeToHubPeering": "[concat(variables('SpokeVNetName'), '/link-', variables('HubVNetName'))]",
+
+        "AppTrafficNSGName": "nsg-sqlallow-prod-001",
+
+        "AppServerSubnetName": "snet-appserver-prod-001",
+        "SqlSubnetName": "snet-appsql-prod-001",
+        "ApplicationGatewaySubnetName": "snet-appagw-prod-001",
+        
+        "AppASGName": "asg-appserver-prod",
+        "SqlASGName": "asg-appsql-prod"
+    },
+    "resources": [
+        {
+            "name": "[variables('HubVNetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.0.0.0/16"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "[variables('SpokeVNetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AppTrafficNSGName'))]"
+            ],
+            "tags": {
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.1.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('AppServerSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.1.0.0/24"
+                            // "networkSecurityGroup": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AppTrafficNSGName'))]"
+                        }
+                    },
+                    {
+                        "name": "[variables('SqlSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.1.1.0/24"
+                            // "networkSecurityGroup": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AppTrafficNSGName'))]"
+                        }
+                    },
+                    {
+                        "name": "[variables('ApplicationGatewaySubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.1.2.0/24"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[variables('AppTrafficNSGName')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('AppASGName'))]",
+                "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('SqlASGName'))]"
+            ],
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "AllowSqlAccess",
+                        "properties": {
+                            "description": "Allow App Server to access MySQL.",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3306",
+                            "sourceApplicationSecurityGroups": [
+                                {
+                                    "id": "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('AppASGName'))]"
+                                }
+                            ],
+                            "destinationApplicationSecurityGroups": [
+                                {
+                                    "id": "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('SqlASGName'))]"
+                                }
+                            ],
+                            "access": "Allow",
+                            "direction": "Inbound",
+                            "priority": 100
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[variables('AppASGName')]",
+            "type": "Microsoft.Network/applicationSecurityGroups",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+            },
+            "properties": {
+            }
+        },
+        {
+            "name": "[variables('SqlASGName')]",
+            "type": "Microsoft.Network/applicationSecurityGroups",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+            },
+            "properties": {
+            }
+        },
+        {
+            "name": "[variables('HubToSpokePeering')]",
+            "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('HubVNetName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('SpokeVNetName'))]"
+            ],
+            "properties": {
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": false,
+                "allowGatewayTransit": false,
+                "useRemoteGateways": false,
+                "remoteVirtualNetwork": {
+                    "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('SpokeVNetName'))]"
+                }
+            }
+        },
+        {
+            "name": "[variables('SpokeToHubPeering')]",
+            "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+            "apiVersion": "2019-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('HubVNetName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('SpokeVNetName'))]"
+            ],
+            "properties": {
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": false,
+                "allowGatewayTransit": false,
+                "useRemoteGateways": false,
+                "remoteVirtualNetwork": {
+                    "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('HubVNetName'))]"
+                }
+            }
+        }
+    ],
     "outputs": {}
 }
