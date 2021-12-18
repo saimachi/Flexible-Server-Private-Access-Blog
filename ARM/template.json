@@ -1,172 +1,155 @@
 {
     "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
     "contentVersion": "1.0.0.0",
-    "parameters": {},
+    "parameters": {
+        "suffix": {
+            "type": "string",
+            "metadata": {
+                "description": "Unique suffix for Azure resources, like the Flexible Server instance."
+            }
+        },
+        "adminPassword": {
+            "type": "SecureString",
+            "metadata": {
+                "description": "Secure password for the MySQL Flexible Server instance."
+            }
+        }
+    },
     "functions": [],
     "variables": {
-        "HubVNetName": "[toLower(concat('vnet-hub-prod-', resourceGroup().location))]",
-        "SpokeVNetName": "[toLower(concat('vnet-app-spoke-prod-', resourceGroup().location, '-001'))]",
-        
-        "HubToSpokePeering": "[concat(variables('HubVNetName'), '/link-', variables('SpokeVNetName'))]",
-        "SpokeToHubPeering": "[concat(variables('SpokeVNetName'), '/link-', variables('HubVNetName'))]",
-
-        "AppTrafficNSGName": "nsg-sqlallow-prod-001",
-
-        "AppServerSubnetName": "snet-appserver-prod-001",
-        "SqlSubnetName": "snet-appsql-prod-001",
-        "ApplicationGatewaySubnetName": "snet-appagw-prod-001",
-        
-        "AppASGName": "asg-appserver-prod",
-        "SqlASGName": "asg-appsql-prod"
+        "flexibleServerName": "[concat('app-mysql-flex-', parameters('suffix'))]",
+        "adminLogin": "sqlroot",
+        "privateDnsZoneName": "[concat(variables('flexibleServerName'), '.private.mysql.database.azure.com')]",
+        "privateDnsZoneLinkName": "LinkToVNet"
     },
     "resources": [
         {
-            "name": "[variables('HubVNetName')]",
+            "name": "AppVirtualNetwork",
             "type": "Microsoft.Network/virtualNetworks",
-            "apiVersion": "2019-11-01",
+            "apiVersion": "2020-11-01",
             "location": "[resourceGroup().location]",
-            "tags": {
-            },
             "properties": {
                 "addressSpace": {
-                    "addressPrefixes": [
-                        "10.0.0.0/16"
-                    ]
-                }
-            }
-        },
-        {
-            "name": "[variables('SpokeVNetName')]",
-            "type": "Microsoft.Network/virtualNetworks",
-            "apiVersion": "2019-11-01",
-            "location": "[resourceGroup().location]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AppTrafficNSGName'))]"
-            ],
-            "tags": {
-            },
-            "properties": {
-                "addressSpace": {
-                    "addressPrefixes": [
-                        "10.1.0.0/16"
-                    ]
+                    "addressPrefixes": ["192.168.0.0/16"]
                 },
                 "subnets": [
                     {
-                        "name": "[variables('AppServerSubnetName')]",
+                        "name": "GatewaySubnet",
                         "properties": {
-                            "addressPrefix": "10.1.0.0/24"
-                            // "networkSecurityGroup": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AppTrafficNSGName'))]"
+                            "addressPrefix": "192.168.1.0/27"
                         }
                     },
                     {
-                        "name": "[variables('SqlSubnetName')]",
+                        "name": "FlexibleServerSubnet",
                         "properties": {
-                            "addressPrefix": "10.1.1.0/24"
-                            // "networkSecurityGroup": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('AppTrafficNSGName'))]"
+                            "addressPrefix": "192.168.2.0/24",
+                            "delegations": [
+                                {
+                                    "name": "FlexibleServer",
+                                    "properties": {
+                                        "serviceName": "Microsoft.DBforMySQL/flexibleServers"
+                                    }
+                                }
+                            ]
                         }
                     },
                     {
-                        "name": "[variables('ApplicationGatewaySubnetName')]",
+                        "name": "KubernetesSubnet",
                         "properties": {
-                            "addressPrefix": "10.1.2.0/24"
+                            "addressPrefix": "192.168.3.0/24"
                         }
                     }
                 ]
             }
         },
         {
-            "name": "[variables('AppTrafficNSGName')]",
-            "type": "Microsoft.Network/networkSecurityGroups",
-            "apiVersion": "2019-11-01",
-            "location": "[resourceGroup().location]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('AppASGName'))]",
-                "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('SqlASGName'))]"
-            ],
-            "properties": {
-                "securityRules": [
-                    {
-                        "name": "AllowSqlAccess",
-                        "properties": {
-                            "description": "Allow App Server to access MySQL.",
-                            "protocol": "Tcp",
-                            "sourcePortRange": "*",
-                            "destinationPortRange": "3306",
-                            "sourceApplicationSecurityGroups": [
-                                {
-                                    "id": "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('AppASGName'))]"
-                                }
-                            ],
-                            "destinationApplicationSecurityGroups": [
-                                {
-                                    "id": "[resourceId('Microsoft.Network/applicationSecurityGroups', variables('SqlASGName'))]"
-                                }
-                            ],
-                            "access": "Allow",
-                            "direction": "Inbound",
-                            "priority": 100
+            "name": "[variables('privateDnsZoneName')]",
+            "type": "Microsoft.Network/privateDnsZones",
+            "apiVersion": "2018-09-01",
+            "location": "global",
+            "properties": {},
+            "resources": [
+                {
+                    "name": "[variables('privateDnsZoneLinkName')]",
+                    "type": "virtualNetworkLinks",
+                    "apiVersion": "2018-09-01",
+                    "location": "global",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDnsZoneName'))]",
+                        "[resourceId('Microsoft.Network/virtualNetworks', 'AppVirtualNetwork')]"
+                    ],
+                    "properties": {
+                        "registrationEnabled": true,
+                        "virtualNetwork": {
+                            "id": "[resourceId('Microsoft.Network/virtualNetworks', 'AppVirtualNetwork')]"
                         }
                     }
-                ]
-            }
+                }
+            ]
         },
         {
-            "name": "[variables('AppASGName')]",
-            "type": "Microsoft.Network/applicationSecurityGroups",
-            "apiVersion": "2019-11-01",
+            "name": "[variables('flexibleServerName')]",
+            "type": "Microsoft.DBforMySQL/flexibleServers",
+            "apiVersion": "2021-05-01",
             "location": "[resourceGroup().location]",
-            "tags": {
-            },
-            "properties": {
-            }
-        },
-        {
-            "name": "[variables('SqlASGName')]",
-            "type": "Microsoft.Network/applicationSecurityGroups",
-            "apiVersion": "2019-11-01",
-            "location": "[resourceGroup().location]",
-            "tags": {
-            },
-            "properties": {
-            }
-        },
-        {
-            "name": "[variables('HubToSpokePeering')]",
-            "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
-            "apiVersion": "2019-11-01",
-            "location": "[resourceGroup().location]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Network/virtualNetworks', variables('HubVNetName'))]",
-                "[resourceId('Microsoft.Network/virtualNetworks', variables('SpokeVNetName'))]"
+            "dependsOn": [ 
+                "[resourceId('Microsoft.Network/virtualNetworks', 'AppVirtualNetwork')]",
+                "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDnsZoneName'))]",
+                "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', variables('privateDnsZoneName'), variables('privateDnsZoneLinkName'))]"
             ],
+            "sku": {
+                "name": "Standard_B1s",
+                "tier": "Burstable"
+            },
             "properties": {
-                "allowVirtualNetworkAccess": true,
-                "allowForwardedTraffic": false,
-                "allowGatewayTransit": false,
-                "useRemoteGateways": false,
-                "remoteVirtualNetwork": {
-                    "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('SpokeVNetName'))]"
+                "administratorLogin": "[variables('adminLogin')]",
+                "administratorLoginPassword": "[parameters('adminPassword')]",
+                "network": {
+                    "delegatedSubnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'AppVirtualNetwork', 'FlexibleServerSubnet')]",
+                    "privateDnsZoneResourceId": "[resourceId('Microsoft.Network/privateDnsZones', variables('privateDnsZoneName'))]"
                 }
             }
         },
         {
-            "name": "[variables('SpokeToHubPeering')]",
-            "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
-            "apiVersion": "2019-11-01",
+            "name": "OnPremisesGatewayPublicIP",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic"
+            }
+        },
+        {
+            "name": "OnPremisesGateway",
+            "type": "Microsoft.Network/virtualNetworkGateways",
+            "apiVersion": "2020-11-01",
             "location": "[resourceGroup().location]",
             "dependsOn": [
-                "[resourceId('Microsoft.Network/virtualNetworks', variables('HubVNetName'))]",
-                "[resourceId('Microsoft.Network/virtualNetworks', variables('SpokeVNetName'))]"
+                "[resourceId('Microsoft.Network/virtualNetworks', 'AppVirtualNetwork')]",
+                "[resourceId('Microsoft.Network/publicIpAddresses', 'OnPremisesGatewayPublicIP')]"
             ],
             "properties": {
-                "allowVirtualNetworkAccess": true,
-                "allowForwardedTraffic": false,
-                "allowGatewayTransit": false,
-                "useRemoteGateways": false,
-                "remoteVirtualNetwork": {
-                    "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('HubVNetName'))]"
-                }
+                "gatewayType": "Vpn",
+                "ipConfigurations": [
+                    {
+                        "name": "default",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'AppVirtualNetwork', 'GatewaySubnet')]"
+                            },
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'OnPremisesGatewayPublicIP')]"
+                            }
+                        }
+                    }
+                ],
+                "sku": {
+                    "name": "Basic",
+                    "tier": "Basic",
+                    "capacity": 1
+                },
+                "vpnType": "RouteBased"
             }
         }
     ],
