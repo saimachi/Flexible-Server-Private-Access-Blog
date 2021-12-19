@@ -54,9 +54,9 @@
                         }
                     },
                     {
-                        "name": "KubernetesSubnet",
+                        "name": "ForwarderSubnet",
                         "properties": {
-                            "addressPrefix": "192.168.3.0/24"
+                            "addressPrefix": "192.168.4.0/24"
                         }
                     }
                 ]
@@ -150,6 +150,86 @@
                     "capacity": 1
                 },
                 "vpnType": "RouteBased"
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2021-07-01",
+            "name": "DNSForwarder",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_B1ms"
+                },
+                "storageProfile": {
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        }
+                    },
+                    "imageReference": {
+                        "publisher": "MicrosoftWindowsServer",
+                        "offer": "WindowsServer",
+                        "sku": "2019-datacenter-gensecond",
+                        "version": "latest"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', 'DNSForwarderNIC')]"
+                        }
+                    ]
+                },
+                "osProfile": {
+                    "adminUsername": "[variables('adminLogin')]",
+                    "adminPassword": "[parameters('adminPassword')]",
+                    "computerName": "DNSForwarder",
+                    "windowsConfiguration": {
+                        "enableAutomaticUpdates": true,
+                        "provisionVMAgent": true
+                    }
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', 'DNSForwarderNIC')]"
+            ]
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "name": "DNSForwarderNIC",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "dnsforwarder-ip",
+                        "properties": {
+                            "privateIPAllocationMethod": "Static",
+                            "privateIPAddress": "192.168.4.10",
+                            "subnet": { 
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'AppVirtualNetwork', 'ForwarderSubnet')]"
+                            }
+                        }
+                    }
+                ],
+                "networkSecurityGroup": {
+                    "id": "[resourceId('Microsoft.Network/networkSecurityGroups', 'DNSForwarderNSG')]"
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', 'DNSForwarderNSG')]",
+                "[resourceId('Microsoft.Network/virtualNetworks', 'AppVirtualNetwork')]"
+            ]
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "name": "DNSForwarderNSG",
+            "properties": {
+                "securityRules":  []
             }
         }
     ],
