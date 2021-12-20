@@ -11,7 +11,7 @@
         "adminPassword": {
             "type": "SecureString",
             "metadata": {
-                "description": "Secure password for the MySQL Flexible Server instance."
+                "description": "Secure password for the MySQL Flexible Server instance and the DNS Forwarder VM."
             }
         }
     },
